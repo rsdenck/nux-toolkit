@@ -278,7 +278,7 @@ func showInventory() {
 
 // Execution logic (Simplified for brevity but functional)
 func expandVG() {
-	dev := ler("Enter device to add to VG (e.g. /dev/sdb): ")
+	dev := ler("Enter Device to add to VG (e.g. /dev/sdb): ")
 	vgname := ler("Enter VG Name: ")
 	if confirm() {
 		executar("pvcreate", dev)
