@@ -48,7 +48,7 @@ jobs:
             if [ ! -f "$sh" ]; then err "$go exists without $sh"; continue; fi
 
             # 1. par byte-idêntico
-            cmp -s "$go" || err "$base: .go and .sh must be byte-identical"
+            cmp -s "$go" "$sh" || err "$base: .go and .sh must be byte-identical"
 
             # 2. linha 1 do polyglot
             head -n1 "$go" | grep -q '^/\* 2>/dev/null$' \
