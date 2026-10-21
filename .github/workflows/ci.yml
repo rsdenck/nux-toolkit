@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  polyglot-pairs:
+    name: Validate polyglot pairs (Go + Bash)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Validate every pair (.go == .sh, structure, shell syntax, gofmt, build, vet)
+        run: |
+          set -u
+          fail=0
+          total=0
+
+          err() { echo "::error::$1"; fail=1; }
+
+          # Bases: união de todo *.go e *.sh versionados (pega meio-par órfão)
+          {
+            git ls-files '*.go' | sed 's/\.go$//'
+            git ls-files '*.sh' | sed 's/\.sh$//'
+          } | sort -u > /tmp/ntk-bases.txt
+
+          while IFS= read -r base; do
+            [ -n "$base" ] || continue
+            go="$base.go"
+            sh="$base.sh"
+            name=$(basename "$base")
+            total=$((total + 1))
+
+            if [ ! -f "$go" ]; then err "$sh exists without $go"; continue; fi
+            if [ ! -f "$sh" ]; then err "$go exists without $sh"; continue; fi
+
+            # 1. par byte-idêntico
+            cmp -s "$go" || err "$base: .go and .sh must be byte-identical"
+
+            # 2. linha 1 do polyglot
+            head -n1 "$go" | grep -q '^/\* 2>/dev/null$' \
+              || err "$base: line 1 must be exactly '/* 2>/dev/null'"
+
+            # 3. delimitador do heredoc: última linha, exatamente 2 ocorrências,
+            #    e usada como string na abertura do heredoc
+            last=$(tail -n1 "$go")
+            case $last in
+              "// --- fim do arquivo polyglot"*) ;;
+              *) err "$base: last line must be the heredoc delimiter"; last="" ;;
+            esac
+            if [ -n "$last" ]; then
+              [ "$(grep -cF -- "$last" "$go")" -eq 2 ] \
+                || err "$base: delimiter must appear exactly twice"
+              grep -qF -- ": <<'$last'" "$go" \
+                || err "$base: heredoc line must open with the delimiter"
+            fi
+
+            # 4. o bloco bash (antes do */) não pode conter */
+            if awk '/^\*\/$/{exit} {print}' "$sh" | grep -q '\*/'; then
+              err "$base: '*/' is forbidden inside the bash block"
+            fi
+
+            # 5. sintaxe shell (bash e sh)
+            bash -n "$sh" || err "$base: bash -n failed"
+            sh -n "$sh"   || err "$base: sh -n failed"
+
+            # 6. gofmt / build / vet (sempre com arquivo explícito —
+            #    vários package main convivem na mesma árvore)
+            fmt_out=$(gofmt -l "$go")
+            [ -z "$fmt_out" ] || err "$base: gofmt reports needed changes"
+            go build -o "/tmp/ntk-$name" "$go" || err "$base: go build failed"
+            go vet "$go" || err "$base: go vet failed"
+          done < /tmp/ntk-bases.txt
+
+          echo "pairs checked: $total"
+          if [ "$fail" -eq 0 ]; then
+            echo "All polyglot pairs OK"
+          fi
+          exit "$fail"
